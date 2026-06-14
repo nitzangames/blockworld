@@ -1,0 +1,9 @@
+{
+  "slug": "blockworld",
+  "title": "BlockWorld",
+  "description": "Build anything from colored blocks in a shared world.",
+  "tags": ["creative", "sandbox", "multiplayer"],
+  "author": "Nitzan",
+  "thumbnail": "thumbnail.png",
+  "desktop_fill": true
+}
