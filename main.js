@@ -24,6 +24,14 @@ function showNotice(text) {
   setTimeout(() => n.remove(), 4000);
 }
 
+function showLoading(text) {
+  const o = document.createElement('div');
+  o.style.cssText = 'position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(15,17,21,.85);color:#fff;font-family:system-ui,sans-serif;font-size:18px;pointer-events:auto';
+  o.textContent = text;
+  document.body.appendChild(o);
+  return o;
+}
+
 async function boot() {
   const sdk = window.PlaySDK;
   const displayName = sdk && sdk.getDisplayName ? await sdk.getDisplayName().catch(() => null) : null;
@@ -69,6 +77,8 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   const view = createWorldView(canvas, world);
   const avatars = createAvatars(view.scene);
   const cam = createFlyCamera([WX / 2, 4, WZ / 2], 0, -0.35);
+  const clientId = 'c' + Math.floor(Math.random() * 1e9);
+  let loadingEl = host ? null : showLoading('Loading world…');
   const autosave = host && worldId && sdk && sdk.save
     ? makeWorldAutosaver(sdk, worldId, () => world, index, () => Date.now(), 3000)
     : () => {};
@@ -76,10 +86,10 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   function rebindWorld() { view.setWorld(world); view.rebuildAll(); }
 
   const session = createSession({
-    transport, ownerId, myName, getWorld: () => world,
+    transport, ownerId, myName, clientId, getWorld: () => world,
     hooks: {
       worldName: 'World',
-      onSnapshot: (w) => { world = w; rebindWorld(); },
+      onSnapshot: (w) => { world = w; rebindWorld(); if (loadingEl) { loadingEl.remove(); loadingEl = null; } },
       applyRemoteEdit: (x, y, z, b, dirty) => { dirty.forEach((id) => view.rebuildChunk(id)); if (host) autosave(); },
       onPos: (userId, p) => avatars.setTarget(userId, p.n || 'Player', p),
       onPlayerLeft: (userId) => avatars.remove(userId),
