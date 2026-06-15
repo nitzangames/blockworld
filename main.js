@@ -6,7 +6,7 @@ import { applyEdit } from './lib/voxel/edit.js';
 import { createDesktopInput } from './lib/input/desktop.js';
 import { createMobileInput } from './lib/input/mobile.js';
 import { createHUD } from './lib/ui/hud.js';
-import { loadCurrent, saveCurrent, makeAutosaver } from './lib/persist/world-store.js';
+import { getWorlds, loadWorld, saveWorld, saveIndex, newWorldId, upsertWorld, renameInIndex, deleteWorld, makeWorldAutosaver } from './lib/persist/worlds.js';
 import { WX, WZ } from './lib/constants.js';
 import { createSession } from './lib/net/session.js';
 import { makePlayTransport } from './lib/net/play-transport.js';
@@ -17,46 +17,62 @@ const REACH = 8;
 let selected = 1;
 const canvas = document.getElementById('c');
 
+function showNotice(text) {
+  const n = document.createElement('div');
+  n.textContent = text;
+  n.style.cssText = 'position:absolute;left:50%;top:18px;transform:translateX(-50%);z-index:30;background:rgba(20,23,28,.95);color:#fff;padding:10px 16px;border-radius:10px;font-family:system-ui,sans-serif;font-size:14px;pointer-events:none';
+  document.body.appendChild(n);
+  setTimeout(() => n.remove(), 4000);
+}
+
 async function boot() {
   const sdk = window.PlaySDK;
   const displayName = sdk && sdk.getDisplayName ? await sdk.getDisplayName().catch(() => null) : null;
+  let index = sdk && sdk.load ? await getWorlds(sdk, Date.now()).catch(() => []) : [];
+
+  async function saveIndexSafe() { try { if (sdk && sdk.save) await saveIndex(sdk, index); } catch {} }
 
   const menu = showMainMenu({
+    worlds: index,
     displayName,
-    onHost: () => start({ host: true }),
-    onJoin: (code) => start({ host: false, code }),
+    onOpen: (id) => startHost(id),
+    onNew: async (name) => {
+      const id = newWorldId(index);
+      const w = createWorld(); fillFloor(w, 8);
+      if (sdk && sdk.save) { await saveWorld(sdk, id, w); upsertWorld(index, { id, name, updatedAt: Date.now() }); await saveIndexSafe(); }
+      startHost(id, w);
+    },
+    onRename: async (id, name) => { renameInIndex(index, id, name); await saveIndexSafe(); menu.setWorlds(index); },
+    onDelete: async (id) => { index = sdk && sdk.save ? await deleteWorld(sdk, index, id) : index.filter((x) => x.id !== id); menu.setWorlds(index); },
+    onJoin: (code) => startVisitor(code),
   });
 
-  async function start({ host, code }) {
-    let room, transport, ownerId;
-    try {
-      if (host) {
-        room = await sdk.multiplayer.createRoom({ maxPlayers: 8, visibility: 'private' });
-        ownerId = room.hostId;
-      } else {
-        room = await sdk.multiplayer.joinRoom(code);
-        ownerId = room.hostId;
-      }
-    } catch (e) {
-      // Hosting/joining works for guest accounts too — surface the real error rather than
-      // assuming the user isn't signed in.
-      menu.setStatus((host ? 'Could not host: ' : 'Join failed: ') + (e && e.message ? e.message : 'try again'));
-      return;
-    }
-    // The SDK exposes no public userId getter; session.js no longer needs our own id (PERM is
-    // targeted), so a placeholder is fine for the transport.
-    transport = makePlayTransport(sdk, room, ownerId);
+  async function startHost(worldId, preworld) {
+    let room;
+    try { room = await sdk.multiplayer.createRoom({ maxPlayers: 8, visibility: 'private' }); }
+    catch (e) { menu.setStatus('Could not host: ' + (e && e.message ? e.message : 'try again')); return; }
+    const transport = makePlayTransport(sdk, room, room.hostId);
     menu.close();
-    runGame({ sdk, room, transport, ownerId, host, myName: displayName || 'Guest' });
+    runGame({ sdk, room, transport, ownerId: room.hostId, host: true, myName: displayName || 'Guest', worldId, preworld, index });
+  }
+  async function startVisitor(code) {
+    let room;
+    try { room = await sdk.multiplayer.joinRoom(code); }
+    catch (e) { menu.setStatus('Join failed: ' + (e && e.message ? e.message : 'check the code')); return; }
+    const transport = makePlayTransport(sdk, room, room.hostId);
+    menu.close();
+    runGame({ sdk, room, transport, ownerId: room.hostId, host: false, myName: displayName || 'Guest' });
   }
 }
 
-function runGame({ sdk, room, transport, ownerId, host, myName }) {
-  let world = createWorld();
+function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworld, index }) {
+  let world = preworld || createWorld();
   const view = createWorldView(canvas, world);
   const avatars = createAvatars(view.scene);
   const cam = createFlyCamera([WX / 2, 4, WZ / 2], 0, -0.35);
-  const autosave = host && sdk && sdk.save ? makeAutosaver(sdk, () => world, 3000) : () => {};
+  const autosave = host && worldId && sdk && sdk.save
+    ? makeWorldAutosaver(sdk, worldId, () => world, index, () => Date.now(), 3000)
+    : () => {};
 
   function rebindWorld() { view.setWorld(world); view.rebuildAll(); }
 
@@ -75,9 +91,10 @@ function runGame({ sdk, room, transport, ownerId, host, myName }) {
   });
 
   if (host) {
-    world = createWorld(); fillFloor(world, 8);
-    if (sdk && sdk.load) loadCurrent(sdk).then((w) => { if (w) world = w; rebindWorld(); }).catch(rebindWorld);
-    else rebindWorld();
+    if (preworld) { world = preworld; rebindWorld(); }
+    else if (sdk && sdk.load && worldId) {
+      loadWorld(sdk, worldId).then((w) => { if (w) world = w; else { world = createWorld(); fillFloor(world, 8); } rebindWorld(); }).catch(() => { world = createWorld(); fillFloor(world, 8); rebindWorld(); });
+    } else { world = createWorld(); fillFloor(world, 8); rebindWorld(); }
   }
 
   function act() {
@@ -106,11 +123,11 @@ function runGame({ sdk, room, transport, ownerId, host, myName }) {
   });
   const mobile = isMobile() ? createMobileInput(document.getElementById('touchUI'), { onAct: act }) : null;
 
-  sdk.multiplayer.on('disconnected', () => { alert('Session ended (host left).'); location.reload(); });
+  sdk.multiplayer.on('disconnected', () => { showNotice('Session ended — the host left.'); setTimeout(() => location.reload(), 1800); });
   let running = true, last = performance.now(), posTimer = 0;
   if (sdk.onPause) sdk.onPause(() => { running = false; });
   if (sdk.onResume) sdk.onResume(() => { if (!running) { running = true; last = performance.now(); loop(last); } });
-  window.addEventListener('beforeunload', () => { if (host && sdk.save) saveCurrent(sdk, world); });
+  window.addEventListener('beforeunload', () => { if (host && worldId && sdk.save) saveWorld(sdk, worldId, world); });
 
   function loop(now) {
     if (!running) return;
