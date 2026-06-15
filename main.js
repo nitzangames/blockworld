@@ -150,7 +150,9 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   if (host) {
     if (preworld) { world = preworld; rebindWorld(); }
     else if (sdk && sdk.load && worldId) {
-      loadWorld(sdk, worldId).then((w) => { if (w) world = w; else { world = createWorld(); fillFloor(world, 8); } rebindWorld(); }).catch(() => { world = createWorld(); fillFloor(world, 8); rebindWorld(); });
+      if (!loadingEl) loadingEl = showLoading('Loading world…');
+      const done = () => { rebindWorld(); if (loadingEl) { loadingEl.remove(); loadingEl = null; } };
+      loadWorld(sdk, worldId).then((w) => { if (w) world = w; else { world = createWorld(); fillFloor(world, 8); } done(); }).catch(() => { world = createWorld(); fillFloor(world, 8); done(); });
     } else { world = createWorld(); fillFloor(world, 8); rebindWorld(); }
   }
 
