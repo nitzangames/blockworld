@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="game-version" content="v0.5.4">
+<meta name="game-version" content="v0.5.5">
 <title>BlockWorld</title>
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#9ec7e8;touch-action:none}#c{display:block;width:100%;height:100%}</style>
 </head>
@@ -12,7 +12,10 @@
 <div id="hud" style="position:absolute;inset:0;pointer-events:none;font-family:-apple-system,system-ui,sans-serif;color:#fff">
   <div id="topbar" style="position:absolute;top:env(safe-area-inset-top,8px);left:0;right:0;display:flex;justify-content:space-between;padding:8px 12px;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.5)">
     <button id="menuBtn" style="pointer-events:auto;background:rgba(0,0,0,.35);border:0;color:#fff;border-radius:8px;padding:6px 10px;font-size:18px">☰</button>
-    <span id="ver" style="opacity:.8;font-size:13px">v0.5.4</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button id="outlineBtn" title="Toggle cube outlines" style="pointer-events:auto;background:rgba(0,0,0,.35);border:0;color:#fff;border-radius:8px;padding:6px 10px;font-size:16px;line-height:1">▦</button>
+      <span id="ver" style="opacity:.8;font-size:13px">v0.5.5</span>
+    </div>
   </div>
   <div id="crosshair" style="position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%)">
     <div style="position:absolute;left:10px;top:3px;width:2px;height:16px;background:#fff;opacity:.85"></div>

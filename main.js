@@ -172,6 +172,22 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   });
   document.getElementById('menuBtn').addEventListener('click', () => inWorld.toggle());
 
+  // Cube-outline toggle (top-right). On by default; choice persists per device.
+  const outlineBtn = document.getElementById('outlineBtn');
+  if (outlineBtn) {
+    let on = true;
+    try { const s = localStorage.getItem('blockworld:outlines'); if (s !== null) on = s === '1'; } catch (e) {}
+    view.setOutlines(on);
+    const paintOutlineBtn = () => { outlineBtn.style.opacity = view.getOutlines() ? '1' : '0.4'; };
+    paintOutlineBtn();
+    outlineBtn.addEventListener('click', () => {
+      const next = !view.getOutlines();
+      view.setOutlines(next);
+      try { localStorage.setItem('blockworld:outlines', next ? '1' : '0'); } catch (e) {}
+      paintOutlineBtn();
+    });
+  }
+
   const desktop = createDesktopInput(canvas, {
     onAct: act,
     onPick: (i) => { if (i >= 0 && i <= 16) { selected = i; hud.refresh(); } },
