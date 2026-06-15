@@ -2,7 +2,6 @@ import { createWorld, fillFloor } from './lib/voxel/store.js';
 import { createWorldView, isMobile } from './lib/render/world-view.js';
 import { createFlyCamera, updateFlyCamera, lookDir } from './lib/player/fly-camera.js';
 import { raycast } from './lib/voxel/raycast.js';
-import { applyEdit } from './lib/voxel/edit.js';
 import { createDesktopInput } from './lib/input/desktop.js';
 import { createMobileInput } from './lib/input/mobile.js';
 import { createHUD } from './lib/ui/hud.js';
