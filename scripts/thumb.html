@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0;width:512px;height:512px;overflow:hidden;background:#9ec7e8}
+  #c{width:512px;height:512px;display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../vendor/three.min.js"></script>
+<script type="module">
+import { createWorld, fillFloor, setBlock } from '../lib/voxel/store.js';
+import { createWorldView } from '../lib/render/world-view.js';
+
+const w = createWorld();
+fillFloor(w, 8); // grass
+const cx = 64, cz = 64;
+// a small colorful house
+for (let y = 1; y <= 3; y++) {
+  for (let d = -2; d <= 2; d++) {
+    setBlock(w, cx - 2, y, cz + d, 4);  // red wall
+    setBlock(w, cx + 2, y, cz + d, 11); // blue wall
+    setBlock(w, cx + d, y, cz - 2, 6);  // orange wall
+    setBlock(w, cx + d, y, cz + 2, 7);  // yellow wall
+  }
+}
+for (let d = -2; d <= 2; d++) for (let e = -2; e <= 2; e++) setBlock(w, cx + d, 4, cz + e, 2); // gray roof
+setBlock(w, cx, 1, cz - 2, 0); setBlock(w, cx, 2, cz - 2, 0); // doorway
+// a little tower of every color
+const cols = [5, 6, 7, 9, 10, 11, 12, 13, 14];
+for (let i = 0; i < cols.length; i++) setBlock(w, cx + 6, 1 + i, cz + 5, cols[i]);
+// a tree
+for (let y = 1; y <= 3; y++) setBlock(w, cx - 6, y, cz + 4, 16); // brown trunk
+for (let lx = -7; lx <= -5; lx++) for (let lz = 3; lz <= 5; lz++) for (let y = 3; y <= 4; y++) setBlock(w, cx + lx, y, cz + lz, 8);
+
+const glCanvas = document.getElementById('c');
+const view = createWorldView(glCanvas, w);
+view.rebuildAll();
+const cam = { pos: [cx - 9, 8.5, cz - 9], yaw: Math.PI * 0.25, pitch: -0.32 };
+view.render(cam);
+requestAnimationFrame(() => {
+  view.render(cam);
+  // Composite the WebGL render + title onto a 2D canvas and export as a data URL.
+  // (Page screenshots of a swiftshader WebGL canvas come out black; toDataURL works
+  // because the renderer keeps preserveDrawingBuffer on.)
+  const out = document.createElement('canvas'); out.width = 512; out.height = 512;
+  const g = out.getContext('2d');
+  g.drawImage(glCanvas, 0, 0, 512, 512);
+  g.font = '800 50px system-ui, -apple-system, sans-serif';
+  g.textAlign = 'center'; g.lineJoin = 'round';
+  g.lineWidth = 9; g.strokeStyle = 'rgba(0,0,0,0.55)'; g.strokeText('BlockWorld', 256, 482);
+  g.fillStyle = '#ffffff'; g.fillText('BlockWorld', 256, 482);
+  window.__thumbDataURL = out.toDataURL('image/png');
+  window.__ready = true;
+});
+</script>
+</body>
+</html>
