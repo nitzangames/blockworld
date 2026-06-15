@@ -20,4 +20,9 @@ describe('fly camera', () => {
     expect(cam.pitch).toBeLessThan(Math.PI / 2);
     expect(cam.pitch).toBeGreaterThan(Math.PI / 2 - 0.2);
   });
+  // Hot path: called every frame — returns one shared, reused array (no per-call allocation).
+  it('lookDir returns the same shared array each call', () => {
+    const cam = createFlyCamera([0, 0, 0], 0, 0);
+    expect(lookDir(cam)).toBe(lookDir(cam));
+  });
 });

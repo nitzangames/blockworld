@@ -23,4 +23,12 @@ describe('raycast', () => {
     expect(hit.cell).toEqual([2, 0, 2]);
     expect(hit.normal).toEqual([0, 1, 0]);
   });
+  // Hot path: runs every frame, so it must not allocate — it returns one shared, reused result.
+  it('returns the same shared result object on every hit (no per-call allocation)', () => {
+    const w = createWorld();
+    setBlock(w, 5, 0, 0, 3);
+    const a = raycast(w, [0.5, 0.5, 0.5], [1, 0, 0], 16);
+    const b = raycast(w, [0.5, 0.5, 0.5], [1, 0, 0], 16);
+    expect(a).toBe(b);
+  });
 });
