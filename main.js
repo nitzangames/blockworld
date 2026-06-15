@@ -21,16 +21,26 @@ async function boot() {
 
   const view = createWorldView(canvas, world);
   view.rebuildAll();
-  const cam = createFlyCamera([WX / 2, 18, WZ / 2], 0, -0.5);
+  const cam = createFlyCamera([WX / 2, 4, WZ / 2], 0, -0.35);
 
   const autosave = sdk && sdk.save ? makeAutosaver(sdk, () => world, 3000) : () => {};
 
-  function doEdit(place) {
+  // One action for every device (tap on mobile, left-click on laptop). The active palette tool
+  // decides what it does: the erase tool (selected === 0) removes the block you're pointing at;
+  // a color tool (1..16) places that color on the face you're pointing at.
+  function act() {
     const dir = lookDir(cam);
     const hit = raycast(world, cam.pos, dir, REACH);
     if (!hit) return;
-    let x = hit.cell[0], y = hit.cell[1], z = hit.cell[2], block = 0;
-    if (place) { x += hit.normal[0]; y += hit.normal[1]; z += hit.normal[2]; block = selected; }
+    let x, y, z, block;
+    if (selected === 0) {
+      x = hit.cell[0]; y = hit.cell[1]; z = hit.cell[2]; block = 0;
+    } else {
+      x = hit.cell[0] + hit.normal[0];
+      y = hit.cell[1] + hit.normal[1];
+      z = hit.cell[2] + hit.normal[2];
+      block = selected;
+    }
     const res = applyEdit(world, x, y, z, block);
     if (res.ok) { res.dirty.forEach((id) => view.rebuildChunk(id)); autosave(); }
   }
@@ -38,12 +48,13 @@ async function boot() {
   const hud = createHUD({ onPick: (i) => { selected = i; hud.refresh(); }, getSelected: () => selected });
 
   const desktop = createDesktopInput(canvas, {
-    onPlace: () => doEdit(true), onBreak: () => doEdit(false),
-    onPick: (i) => { if (i <= 16) { selected = i; hud.refresh(); } },
+    onAct: () => act(),
+    onPick: (i) => { if (i >= 0 && i <= 16) { selected = i; hud.refresh(); } },
+    onScroll: (d) => { selected = (selected + d + 17) % 17; hud.refresh(); },
     onMenu: () => {},
   });
   const mobile = isMobile()
-    ? createMobileInput(document.getElementById('touchUI'), { onPlace: () => doEdit(true), onBreak: () => doEdit(false) })
+    ? createMobileInput(document.getElementById('touchUI'), { onAct: () => act() })
     : null;
 
   let running = true;
