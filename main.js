@@ -38,17 +38,20 @@ async function boot() {
         ownerId = room.hostId;
       }
     } catch (e) {
-      menu.setStatus(host ? 'Could not host (are you signed in?)' : 'Join failed — check the code');
+      // Hosting/joining works for guest accounts too — surface the real error rather than
+      // assuming the user isn't signed in.
+      menu.setStatus((host ? 'Could not host: ' : 'Join failed: ') + (e && e.message ? e.message : 'try again'));
       return;
     }
-    const myId = (sdk.getUserId && sdk.getUserId()) || (host ? ownerId : 'me-' + Math.floor(performance.now()));
-    transport = makePlayTransport(sdk, room, myId);
+    // The SDK exposes no public userId getter; session.js no longer needs our own id (PERM is
+    // targeted), so a placeholder is fine for the transport.
+    transport = makePlayTransport(sdk, room, ownerId);
     menu.close();
-    runGame({ sdk, room, transport, ownerId, host });
+    runGame({ sdk, room, transport, ownerId, host, myName: displayName || 'Guest' });
   }
 }
 
-function runGame({ sdk, room, transport, ownerId, host }) {
+function runGame({ sdk, room, transport, ownerId, host, myName }) {
   let world = createWorld();
   const view = createWorldView(canvas, world);
   const avatars = createAvatars(view.scene);
@@ -58,12 +61,12 @@ function runGame({ sdk, room, transport, ownerId, host }) {
   function rebindWorld() { view.setWorld(world); view.rebuildAll(); }
 
   const session = createSession({
-    transport, ownerId, getWorld: () => world,
+    transport, ownerId, myName, getWorld: () => world,
     hooks: {
       worldName: 'World',
       onSnapshot: (w) => { world = w; rebindWorld(); },
       applyRemoteEdit: (x, y, z, b, dirty) => { dirty.forEach((id) => view.rebuildChunk(id)); if (host) autosave(); },
-      onPos: (userId, p) => avatars.setTarget(userId, userId, p),
+      onPos: (userId, p) => avatars.setTarget(userId, p.n || 'Player', p),
       onPlayerLeft: (userId) => avatars.remove(userId),
       onPlayers: () => inWorld.refresh(),
       onPermChange: () => {},
