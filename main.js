@@ -96,6 +96,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
 
   function rebindWorld() { view.setWorld(world); view.rebuildAll(); }
 
+  let inWorld; // assigned below; referenced by the session's onWelcome hook (fires async)
   const session = createSession({
     transport, ownerId, myName, clientId, getWorld: () => world,
     hooks: {
@@ -129,7 +130,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   }
 
   const hud = createHUD({ onPick: (i) => { selected = i; hud.refresh(); }, getSelected: () => selected });
-  const inWorld = createInWorldMenu({
+  inWorld = createInWorldMenu({
     getState: () => ({ isHost: host, code: room.code, worldName: session.worldName(), players: session.players() }),
     onToggle: (userId, canEdit) => session.setPermission(userId, canEdit),
     onLeave: () => { try { room.leave(); } catch (e) {} location.reload(); },
