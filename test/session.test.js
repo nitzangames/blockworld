@@ -72,6 +72,20 @@ describe('session', () => {
     expect(getBlock(hw, 5, 2, 5)).toBe(0);
   });
 
+  it('a joining visitor learns the world name from WELCOME', () => {
+    const net = makeNetwork();
+    const hw = createWorld(); fillFloor(hw, 8);
+    const host = createSession({ transport: net.transportFor('host', true), getWorld: () => hw, ownerId: 'host',
+      hooks: noopHooks({ worldName: 'Castle' }) });
+    let seen = null;
+    const vis = createSession({ transport: net.transportFor('vis', false), getWorld: () => null, ownerId: 'host',
+      hooks: noopHooks({ onWelcome: (n) => { seen = n; } }) });
+    net.join('host', { userId: 'vis', name: 'Vee' });
+    expect(seen).toBe('Castle');
+    expect(vis.worldName()).toBe('Castle');
+    expect(host.worldName()).toBe('Castle');
+  });
+
   it('host edits broadcast to visitors', () => {
     const net = makeNetwork();
     const hw = createWorld(); fillFloor(hw, 8);
