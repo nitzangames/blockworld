@@ -68,6 +68,8 @@ async function boot() {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const intent = mobile ? mobile.pollIntent() : desktop.pollIntent();
     updateFlyCamera(cam, intent, dt);
+    const target = raycast(world, cam.pos, lookDir(cam), REACH);
+    view.setHighlight(target ? target.cell : null);
     view.render(cam);
     requestAnimationFrame(loop);
   }
