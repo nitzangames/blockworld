@@ -17,28 +17,18 @@ import { createWorldView } from '../lib/render/world-view.js';
 const w = createWorld();
 fillFloor(w, 8); // grass
 const cx = 64, cz = 64;
-// a small colorful house
-for (let y = 1; y <= 3; y++) {
-  for (let d = -2; d <= 2; d++) {
-    setBlock(w, cx - 2, y, cz + d, 4);  // red wall
-    setBlock(w, cx + 2, y, cz + d, 11); // blue wall
-    setBlock(w, cx + d, y, cz - 2, 6);  // orange wall
-    setBlock(w, cx + d, y, cz + 2, 7);  // yellow wall
-  }
+
+// A bold rainbow step-pyramid built from real blocks — fills the tile and reads at thumbnail size.
+const cols = [5, 6, 7, 8, 10, 12, 13]; // red, orange, yellow, green, teal, blue, purple
+for (let l = 0; l < cols.length; l++) {
+  const r = cols.length - 1 - l;
+  for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) setBlock(w, cx + dx, 1 + l, cz + dz, cols[l]);
 }
-for (let d = -2; d <= 2; d++) for (let e = -2; e <= 2; e++) setBlock(w, cx + d, 4, cz + e, 2); // gray roof
-setBlock(w, cx, 1, cz - 2, 0); setBlock(w, cx, 2, cz - 2, 0); // doorway
-// a little tower of every color
-const cols = [5, 6, 7, 9, 10, 11, 12, 13, 14];
-for (let i = 0; i < cols.length; i++) setBlock(w, cx + 6, 1 + i, cz + 5, cols[i]);
-// a tree
-for (let y = 1; y <= 3; y++) setBlock(w, cx - 6, y, cz + 4, 16); // brown trunk
-for (let lx = -7; lx <= -5; lx++) for (let lz = 3; lz <= 5; lz++) for (let y = 3; y <= 4; y++) setBlock(w, cx + lx, y, cz + lz, 8);
 
 const glCanvas = document.getElementById('c');
 const view = createWorldView(glCanvas, w);
 view.rebuildAll();
-const cam = { pos: [cx - 9, 8.5, cz - 9], yaw: Math.PI * 0.25, pitch: -0.32 };
+const cam = { pos: [cx - 12, 9.5, cz - 12], yaw: Math.PI * 0.25, pitch: -0.28 };
 view.render(cam);
 requestAnimationFrame(() => {
   view.render(cam);
@@ -48,6 +38,10 @@ requestAnimationFrame(() => {
   const out = document.createElement('canvas'); out.width = 512; out.height = 512;
   const g = out.getContext('2d');
   g.drawImage(glCanvas, 0, 0, 512, 512);
+  // Soft bottom scrim so the title stays legible over any scene.
+  const grad = g.createLinearGradient(0, 512 - 160, 0, 512);
+  grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+  g.fillStyle = grad; g.fillRect(0, 512 - 160, 512, 160);
   g.font = '800 50px system-ui, -apple-system, sans-serif';
   g.textAlign = 'center'; g.lineJoin = 'round';
   g.lineWidth = 9; g.strokeStyle = 'rgba(0,0,0,0.55)'; g.strokeText('BlockWorld', 256, 482);
