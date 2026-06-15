@@ -32,6 +32,13 @@ function showLoading(text) {
   return o;
 }
 
+function defaultWorldName(index) {
+  const names = new Set((index || []).map((w) => w.name));
+  let n = (index ? index.length : 0) + 1;
+  while (names.has('World ' + n)) n++;
+  return 'World ' + n;
+}
+
 async function boot() {
   const sdk = window.PlaySDK;
   const displayName = sdk && sdk.getDisplayName ? await sdk.getDisplayName().catch(() => null) : null;
@@ -42,25 +49,29 @@ async function boot() {
   const menu = showMainMenu({
     worlds: index,
     displayName,
+    defaultName: defaultWorldName(index),
+    onListRooms: () => (sdk && sdk.multiplayer && sdk.multiplayer.listRooms ? sdk.multiplayer.listRooms() : Promise.resolve([])),
     onOpen: (id) => startHost(id),
     onNew: async (name) => {
       const id = newWorldId(index);
       const w = createWorld(); fillFloor(w, 8);
       if (sdk && sdk.save) { await saveWorld(sdk, id, w); upsertWorld(index, { id, name, updatedAt: Date.now() }); await saveIndexSafe(); }
-      startHost(id, w);
+      startHost(id, w, name);
     },
     onRename: async (id, name) => { renameInIndex(index, id, name); await saveIndexSafe(); menu.setWorlds(index); },
     onDelete: async (id) => { index = sdk && sdk.save ? await deleteWorld(sdk, index, id) : index.filter((x) => x.id !== id); menu.setWorlds(index); },
     onJoin: (code) => startVisitor(code),
   });
 
-  async function startHost(worldId, preworld) {
+  async function startHost(worldId, preworld, nameHint) {
     let room;
-    try { room = await sdk.multiplayer.createRoom({ maxPlayers: 8, visibility: 'private' }); }
+    try { room = await sdk.multiplayer.createRoom({ maxPlayers: 8, visibility: 'public' }); }
     catch (e) { menu.setStatus('Could not host: ' + (e && e.message ? e.message : 'try again')); return; }
     const transport = makePlayTransport(sdk, room, room.hostId);
+    const entry = index && worldId ? index.find((w) => w.id === worldId) : null;
+    const worldName = nameHint || (entry && entry.name) || 'World';
     menu.close();
-    runGame({ sdk, room, transport, ownerId: room.hostId, host: true, myName: displayName || 'Guest', worldId, preworld, index });
+    runGame({ sdk, room, transport, ownerId: room.hostId, host: true, myName: displayName || 'Guest', worldId, preworld, index, worldName });
   }
   async function startVisitor(code) {
     let room;
@@ -72,7 +83,7 @@ async function boot() {
   }
 }
 
-function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworld, index }) {
+function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworld, index, worldName }) {
   let world = preworld || createWorld();
   const view = createWorldView(canvas, world);
   const avatars = createAvatars(view.scene);
@@ -88,7 +99,8 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   const session = createSession({
     transport, ownerId, myName, clientId, getWorld: () => world,
     hooks: {
-      worldName: 'World',
+      worldName: worldName || 'World',
+      onWelcome: () => inWorld.refresh(),
       onSnapshot: (w) => { world = w; rebindWorld(); if (loadingEl) { loadingEl.remove(); loadingEl = null; } },
       applyRemoteEdit: (x, y, z, b, dirty) => { dirty.forEach((id) => view.rebuildChunk(id)); if (host) autosave(); },
       onPos: (userId, p) => avatars.setTarget(userId, p.n || 'Player', p),
@@ -118,7 +130,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
 
   const hud = createHUD({ onPick: (i) => { selected = i; hud.refresh(); }, getSelected: () => selected });
   const inWorld = createInWorldMenu({
-    getState: () => ({ isHost: host, code: room.code, players: session.players() }),
+    getState: () => ({ isHost: host, code: room.code, worldName: session.worldName(), players: session.players() }),
     onToggle: (userId, canEdit) => session.setPermission(userId, canEdit),
     onLeave: () => { try { room.leave(); } catch (e) {} location.reload(); },
   });
