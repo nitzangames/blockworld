@@ -16,6 +16,8 @@ import { resolveDisplayName, watchDisplayName } from './lib/identity.js';
 const REACH = 8;
 let selected = 1;
 const canvas = document.getElementById('c');
+// Single source of truth for the displayed build number (kept in sync with the <meta> + topbar).
+const GAME_VERSION = (document.querySelector('meta[name="game-version"]') || {}).content || '';
 
 function showNotice(text) {
   const n = document.createElement('div');
@@ -43,7 +45,8 @@ function showBootLoading() {
     '<style>@keyframes bw-spin{to{transform:rotate(360deg)}}</style>' +
     '<div style="font-size:30px;font-weight:800">BlockWorld</div>' +
     '<div style="width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.16);border-top-color:#5EA918;animation:bw-spin .8s linear infinite"></div>' +
-    '<div style="font-size:13px;opacity:.55">Connecting…</div>';
+    '<div style="font-size:13px;opacity:.55">Connecting…</div>' +
+    '<div style="position:absolute;bottom:16px;font-size:12px;opacity:.4">' + GAME_VERSION + '</div>';
   document.body.appendChild(o);
   return o;
 }
@@ -69,6 +72,7 @@ async function boot() {
   const menu = showMainMenu({
     worlds: index,
     displayName,
+    version: GAME_VERSION,
     defaultName: defaultWorldName(index),
     onListRooms: () => (sdk && sdk.multiplayer && sdk.multiplayer.listRooms ? sdk.multiplayer.listRooms() : Promise.resolve([])),
     onOpen: (id) => startHost(id),
