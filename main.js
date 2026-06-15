@@ -11,7 +11,7 @@ import { createSession } from './lib/net/session.js';
 import { makePlayTransport } from './lib/net/play-transport.js';
 import { createAvatars } from './lib/render/avatars.js';
 import { showMainMenu, createInWorldMenu } from './lib/ui/menus.js';
-import { watchDisplayName } from './lib/identity.js';
+import { resolveDisplayName, watchDisplayName } from './lib/identity.js';
 
 const REACH = 8;
 let selected = 1;
@@ -33,6 +33,21 @@ function showLoading(text) {
   return o;
 }
 
+// Branded boot overlay shown from first paint until the menu is ready (covers the
+// auth handshake / server wait so the player never sees a bare canvas or a guest flash).
+function showBootLoading() {
+  const o = document.createElement('div');
+  o.id = 'bootloading';
+  o.style.cssText = 'position:absolute;inset:0;z-index:25;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#14171c;color:#fff;font-family:system-ui,sans-serif;pointer-events:auto';
+  o.innerHTML =
+    '<style>@keyframes bw-spin{to{transform:rotate(360deg)}}</style>' +
+    '<div style="font-size:30px;font-weight:800">BlockWorld</div>' +
+    '<div style="width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.16);border-top-color:#5EA918;animation:bw-spin .8s linear infinite"></div>' +
+    '<div style="font-size:13px;opacity:.55">Connecting…</div>';
+  document.body.appendChild(o);
+  return o;
+}
+
 function defaultWorldName(index) {
   const names = new Set((index || []).map((w) => w.name));
   let n = (index ? index.length : 0) + 1;
@@ -42,9 +57,11 @@ function defaultWorldName(index) {
 
 async function boot() {
   const sdk = window.PlaySDK;
-  // Identity arrives via an async token+profile handshake that can land after the SDK reports
-  // ready (anonymous). Start null and upgrade in-place when the real name resolves — see below.
-  let displayName = sdk && sdk.getDisplayName ? await sdk.getDisplayName().catch(() => null) : null;
+  // Hold the boot loading screen until the signed-in identity resolves (the async token+profile
+  // handshake can take up to ~2s), capped so anonymous players aren't stuck. resolveDisplayName
+  // returns the instant the name lands (or null at the cap). Cloud saves load in the same
+  // handshake, so the worlds read just below is current once the name is known.
+  let displayName = await resolveDisplayName(sdk, { tries: 8, intervalMs: 300 });
   let index = sdk && sdk.load ? await getWorlds(sdk, Date.now()).catch(() => []) : [];
 
   async function saveIndexSafe() { try { if (sdk && sdk.save) await saveIndex(sdk, index); } catch {} }
@@ -65,6 +82,7 @@ async function boot() {
     onDelete: async (id) => { index = sdk && sdk.save ? await deleteWorld(sdk, index, id) : index.filter((x) => x.id !== id); menu.setWorlds(index); },
     onJoin: (code) => startVisitor(code),
   });
+  if (bootLoadingEl) bootLoadingEl.remove(); // menu is built underneath; reveal it
 
   // The auth token (and cloud saves) can land after the menu first renders. When the real
   // identity resolves, update the greeting + the name used for hosting, and refresh the
@@ -180,4 +198,5 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   requestAnimationFrame(loop);
 }
 
-if (window.PlaySDK && window.PlaySDK.onReady) window.PlaySDK.onReady(boot); else boot();
+const bootLoadingEl = showBootLoading(); // visible immediately, removed once the menu is ready
+boot();
