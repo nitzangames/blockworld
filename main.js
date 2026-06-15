@@ -11,6 +11,7 @@ import { createSession } from './lib/net/session.js';
 import { makePlayTransport } from './lib/net/play-transport.js';
 import { createAvatars } from './lib/render/avatars.js';
 import { showMainMenu, createInWorldMenu } from './lib/ui/menus.js';
+import { watchDisplayName } from './lib/identity.js';
 
 const REACH = 8;
 let selected = 1;
@@ -41,7 +42,9 @@ function defaultWorldName(index) {
 
 async function boot() {
   const sdk = window.PlaySDK;
-  const displayName = sdk && sdk.getDisplayName ? await sdk.getDisplayName().catch(() => null) : null;
+  // Identity arrives via an async token+profile handshake that can land after the SDK reports
+  // ready (anonymous). Start null and upgrade in-place when the real name resolves — see below.
+  let displayName = sdk && sdk.getDisplayName ? await sdk.getDisplayName().catch(() => null) : null;
   let index = sdk && sdk.load ? await getWorlds(sdk, Date.now()).catch(() => []) : [];
 
   async function saveIndexSafe() { try { if (sdk && sdk.save) await saveIndex(sdk, index); } catch {} }
@@ -61,6 +64,16 @@ async function boot() {
     onRename: async (id, name) => { renameInIndex(index, id, name); await saveIndexSafe(); menu.setWorlds(index); },
     onDelete: async (id) => { index = sdk && sdk.save ? await deleteWorld(sdk, index, id) : index.filter((x) => x.id !== id); menu.setWorlds(index); },
     onJoin: (code) => startVisitor(code),
+  });
+
+  // The auth token (and cloud saves) can land after the menu first renders. When the real
+  // identity resolves, update the greeting + the name used for hosting, and refresh the
+  // worlds list (cloud saves loaded with the same handshake). Fixes "Playing as guest"
+  // showing for a signed-in user when the token arrives after the SDK's ready timeout.
+  watchDisplayName(sdk, async (name) => {
+    displayName = name;
+    menu.setDisplayName(name);
+    if (sdk && sdk.load) { try { index = await getWorlds(sdk, Date.now()); menu.setWorlds(index); } catch {} }
   });
 
   async function startHost(worldId, preworld, nameHint) {
