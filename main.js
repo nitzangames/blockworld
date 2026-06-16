@@ -1,6 +1,7 @@
 import { createWorld, fillFloor } from './lib/voxel/store.js';
 import { createWorldView, isMobile } from './lib/render/world-view.js';
 import { createFlyCamera, updateFlyCamera, lookDir } from './lib/player/fly-camera.js';
+import { updateWalkCamera } from './lib/player/walk-camera.js';
 import { raycast } from './lib/voxel/raycast.js';
 import { createDesktopInput } from './lib/input/desktop.js';
 import { createMobileInput } from './lib/input/mobile.js';
@@ -120,6 +121,7 @@ async function boot() {
 }
 
 function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworld, index, worldName }) {
+  let mode = 'edit';
   let world = preworld || createWorld();
   const view = createWorldView(canvas, world);
   const avatars = createAvatars(view.scene);
@@ -158,6 +160,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   }
 
   function act() {
+    if (mode !== 'edit') return; // Explore is move-only
     if (!session.canEditLocal()) return;
     const hit = raycast(world, cam.pos, lookDir(cam), REACH);
     if (!hit) return;
@@ -191,6 +194,18 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
     });
   }
 
+  // Edit (fly) vs Explore (walk). Edit is the default; Explore is move-only.
+  const modeBtn = document.getElementById('modeBtn');
+  if (modeBtn) {
+    modeBtn.textContent = 'Fly';
+    modeBtn.addEventListener('click', () => {
+      mode = mode === 'edit' ? 'explore' : 'edit';
+      cam.vel[0] = 0; cam.vel[1] = 0; cam.vel[2] = 0; // don't carry momentum across modes
+      cam.grounded = false;
+      modeBtn.textContent = mode === 'edit' ? 'Fly' : 'Walk';
+    });
+  }
+
   const desktop = createDesktopInput(canvas, {
     onAct: act,
     onPick: (i) => { if (i >= 0 && i <= 16) { selected = i; hud.refresh(); } },
@@ -209,11 +224,11 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
     if (!running) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const intent = mobile ? mobile.pollIntent() : desktop.pollIntent();
-    updateFlyCamera(cam, intent, dt);
+    if (mode === 'explore') updateWalkCamera(cam, intent, dt, world); else updateFlyCamera(cam, intent, dt);
     avatars.update(dt);
     posTimer += dt;
     if (posTimer >= 0.08) { posTimer = 0; session.sendPos(cam); }
-    const target = raycast(world, cam.pos, lookDir(cam), REACH);
+    const target = mode === 'edit' ? raycast(world, cam.pos, lookDir(cam), REACH) : null;
     view.setHighlight(target ? target.cell : null);
     view.render(cam);
     requestAnimationFrame(loop);
