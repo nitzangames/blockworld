@@ -71,8 +71,10 @@ From the eye `pos`, the AABB is:
 4. **Move + collide, axis by axis** (prevents corner tunneling). Track a local `grounded = false`
    for this frame. For each axis apply `cam.pos[axis] += cam.vel[axis]·dt`, then if the AABB now
    overlaps any solid voxel, resolve:
-   - **Y (resolved first):** revert the move and zero `cam.vel[1]`; if the motion was downward, set
-     `grounded = true`.
+   - **Y (resolved first):** zero `cam.vel[1]`. If the motion was **downward** (landing), **snap the
+     feet to the surface** — `pos.y = floor(pos.y - EYE) + 1 + EYE` — so there is no gap and
+     `grounded` stays stable frame-to-frame, then set `grounded = true`. If the motion was upward
+     (head hit a ceiling), just revert the move.
    - **X / Z (horizontal):** if blocked and `grounded` (this frame), attempt **auto-step**: lift
      `pos.y` by `STEP`, re-apply the same horizontal move; if the lifted position is collision-free,
      keep it (the player has stepped up onto a 1-high block; gravity settles them on its top over the
@@ -87,10 +89,9 @@ From the eye `pos`, the AABB is:
 
 ### Notes / edge cases
 
-- Per-axis **revert** (not snap-to-surface) leaves a ≤ one-frame-of-motion gap (≤ ~0.1 block at walk
-  speed); imperceptible given the 1.6-block eye height. Snapping is a possible future refinement.
-- `grounded` may toggle frame-to-frame by a hair due to revert; jump still fires reliably on grounded
-  frames. Acceptable.
+- Vertical landing **snaps** to the surface (above) so `grounded` is stable; horizontal walls and
+  ceilings use simple **revert** (leaves a ≤ one-frame, ≤~0.1-block gap — imperceptible at a 1.6-block
+  eye height). Horizontal snap-to-wall is a possible future refinement.
 - World bounds: `getBlock` returns 0 (air) out of bounds, so the world edges are open (you can walk/
   fall off the floor's edge). Matches the existing open-world feel; no invisible walls added.
 
