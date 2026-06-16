@@ -48,12 +48,13 @@ describe('walk-camera', () => {
 
   it('auto-climbs a 1-high step while walking into it', () => {
     const w = createWorld(); fillFloor(w, 8);
-    for (let z = 9; z <= 11; z++) setBlock(w, 12, 1, z, 5); // 1-high step at x=12
+    // a 1-high plateau extending in +x, so the player climbs on and stays up (doesn't walk off)
+    for (let x = 12; x <= 30; x++) for (let z = 9; z <= 11; z++) setBlock(w, x, 1, z, 5);
     const cam = cameraAt(10.5, 2.6, 10.5, Math.PI / 2); cam.grounded = true; // yaw=PI/2 -> forward is +x
     const FWD = { forward: 1, strafe: 0, vertical: 0, dYaw: 0, dPitch: 0 };
     for (let i = 0; i < 120; i++) updateWalkCamera(cam, FWD, 0.016, w);
-    expect(cam.pos[1]).toBeGreaterThan(3.4); // climbed: feet now on the block top (y=2), eye ~3.6
-    expect(cam.pos[0]).toBeGreaterThan(12);  // walked up and onto the block
+    expect(cam.pos[1]).toBeGreaterThan(3.4); // climbed onto the plateau (eye ~3.6)
+    expect(cam.pos[0]).toBeGreaterThan(12);  // walked up and onto it
   });
 
   it('a 2-high wall blocks movement (no climb)', () => {
