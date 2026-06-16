@@ -21,4 +21,15 @@ describe('walk-camera', () => {
     expect(cam.pos[1]).toBeCloseTo(2.6, 5); // feet snap to y=1, eye = 1 + 1.6
     expect(cam.grounded).toBe(true);
   });
+
+  it('look input updates yaw and pitch (clamped)', () => {
+    const w = createWorld();
+    const cam = cameraAt(10, 20, 10);
+    updateWalkCamera(cam, { forward: 0, strafe: 0, vertical: 0, dYaw: 0.5, dPitch: -0.3 }, 0.016, w);
+    expect(cam.yaw).toBeCloseTo(0.5, 6);
+    expect(cam.pitch).toBeCloseTo(-0.3, 6);
+    // pitch clamps to just under -90 degrees
+    for (let i = 0; i < 50; i++) updateWalkCamera(cam, { forward: 0, strafe: 0, vertical: 0, dYaw: 0, dPitch: -1 }, 0.016, w);
+    expect(cam.pitch).toBeGreaterThan(-Math.PI / 2);
+  });
 });
