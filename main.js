@@ -6,14 +6,15 @@ import { createDesktopInput } from './lib/input/desktop.js';
 import { createMobileInput } from './lib/input/mobile.js';
 import { createHUD } from './lib/ui/hud.js';
 import { getWorlds, loadWorld, saveWorld, saveIndex, newWorldId, upsertWorld, renameInIndex, deleteWorld, makeWorldAutosaver } from './lib/persist/worlds.js';
-import { WX, WZ } from './lib/constants.js';
+import { WX, WY, WZ } from './lib/constants.js';
 import { createSession } from './lib/net/session.js';
 import { makePlayTransport } from './lib/net/play-transport.js';
 import { createAvatars } from './lib/render/avatars.js';
 import { showMainMenu, createInWorldMenu } from './lib/ui/menus.js';
 import { resolveDisplayName, watchDisplayName } from './lib/identity.js';
 
-const REACH = 8;
+// Reach spans the whole world (its diagonal), so you can target any block you can see — no limit.
+const REACH = Math.ceil(Math.hypot(WX, WY, WZ));
 let selected = 1;
 const canvas = document.getElementById('c');
 // Single source of truth for the displayed build number (kept in sync with the <meta> + topbar).
