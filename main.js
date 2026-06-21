@@ -88,6 +88,7 @@ async function boot() {
     },
     onRename: async (id, name) => { renameInIndex(index, id, name); await saveIndexSafe(); menu.setWorlds(index); },
     onDelete: async (id) => { index = sdk && sdk.save ? await deleteWorld(sdk, index, id) : index.filter((x) => x.id !== id); menu.setWorlds(index); },
+    onPrivacy: async (id, privacy) => { setPrivacy(index, id, privacy); await saveIndexSafe(); if (sdk && sdk.publishWorld) { try { const e = index.find((w) => w.id === id); const w = await loadWorld(sdk, id); if (w) await sdk.publishWorld({ worldId: id, title: (e && e.name) || 'World', blob: serialize(w), privacy }); } catch (e) {} } },
     onJoin: (code) => startVisitor(code),
   });
   if (bootLoadingEl) bootLoadingEl.remove(); // menu is built underneath; reveal it
