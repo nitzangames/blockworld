@@ -1,9 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createWorld, setBlock, getBlock } from '../lib/voxel/store.js';
+import { createWorld, setBlock, getBlock, fillFloor } from '../lib/voxel/store.js';
+import { serialize } from '../lib/voxel/rle.js';
 import {
   newWorldId, upsertWorld, renameInIndex, removeFromIndex, touchWorld,
   loadIndex, saveIndex, loadWorld, saveWorld, getWorlds, makeWorldAutosaver,
+  setPrivacy, forkWorld,
 } from '../lib/persist/worlds.js';
+import { makeWorldPublisher } from '../lib/persist/worlds.js';
 
 function mockSDK(initial = {}) {
   const kv = new Map(Object.entries(initial));
@@ -53,7 +56,7 @@ describe('worlds persistence (mock sdk)', () => {
     const legacyBlob = 'LEGACYBLOB==';
     const sdk = mockSDK({ 'world:current': legacyBlob });
     const idx = await getWorlds(sdk, 1234);
-    expect(idx).toEqual([{ id: 'w1', name: 'My First World', updatedAt: 1234 }]);
+    expect(idx).toEqual([{ id: 'w1', name: 'My First World', updatedAt: 1234, privacy: 'public' }]);
     expect(sdk.kv.get('world:w1')).toBe(legacyBlob);
     expect(await loadIndex(sdk)).toEqual(idx);
   });
@@ -73,5 +76,63 @@ describe('worlds persistence (mock sdk)', () => {
     expect(sdk.save).toHaveBeenCalledWith('worlds-index', expect.any(String));
     expect(index[0].updatedAt).toBe(777);
     vi.useRealTimers();
+  });
+});
+
+describe('makeWorldPublisher', () => {
+  function fakeSdk() {
+    const calls = [];
+    return { calls, publishWorld: (p) => { calls.push(p); return Promise.resolve({ publish_id: 'px' }); } };
+  }
+  it('publishes at most once per window, then flush() sends the latest', async () => {
+    const sdk = fakeSdk();
+    let now = 0;
+    const pub = makeWorldPublisher(sdk, {
+      worldId: 'w1',
+      getBlob: () => 'BLOB' + now,
+      getMeta: () => ({ title: 'A', privacy: 'public' }),
+      now: () => now,
+      windowMs: 1000,
+    });
+    pub(); // first call -> publishes immediately
+    pub(); // within window -> throttled (no new call)
+    expect(sdk.calls.length).toBe(1);
+    expect(sdk.calls[0]).toMatchObject({ worldId: 'w1', title: 'A', privacy: 'public' });
+    now = 1500; pub(); // window passed -> publishes
+    expect(sdk.calls.length).toBe(2);
+    await pub.flush(); // forces a final publish of the latest snapshot
+    expect(sdk.calls.length).toBe(3);
+    expect(sdk.calls[2].blob).toBe('BLOB1500');
+  });
+  it('does not throw when sdk lacks publishWorld', async () => {
+    const pub = makeWorldPublisher({}, { worldId: 'w1', getBlob: () => 'B', getMeta: () => ({ title: 'A', privacy: 'public' }), now: () => 0 });
+    pub(); await pub.flush(); // no-op, no throw
+  });
+});
+
+describe('world privacy', () => {
+  it('new worlds default to public via upsertWorld', () => {
+    const index = [];
+    upsertWorld(index, { id: 'w1', name: 'A', updatedAt: 1, privacy: 'public' });
+    expect(index[0].privacy).toBe('public');
+  });
+  it('setPrivacy updates an entry and ignores unknown ids', () => {
+    const index = [{ id: 'w1', name: 'A', privacy: 'public' }];
+    setPrivacy(index, 'w1', 'viewonly');
+    expect(index[0].privacy).toBe('viewonly');
+    setPrivacy(index, 'nope', 'private'); // no throw
+    expect(index[0].privacy).toBe('viewonly');
+  });
+});
+
+describe('forkWorld', () => {
+  it('creates a new owned world from a published blob', () => {
+    const src = createWorld(); fillFloor(src, 8);
+    const blob = serialize(src);
+    const index = [{ id: 'w1', name: 'Mine', privacy: 'public' }];
+    const { id, world } = forkWorld(index, blob, 'Castle (copy)');
+    expect(id).toBe('w2');                       // newWorldId after w1
+    expect(getBlock(world, 0, 0, 0)).toBe(8);    // floor came across
+    expect(index.find((w) => w.id === 'w2')).toMatchObject({ id: 'w2', name: 'Castle (copy)', privacy: 'public' });
   });
 });

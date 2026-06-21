@@ -6,7 +6,9 @@ import { raycast } from './lib/voxel/raycast.js';
 import { createDesktopInput } from './lib/input/desktop.js';
 import { createMobileInput } from './lib/input/mobile.js';
 import { createHUD } from './lib/ui/hud.js';
-import { getWorlds, loadWorld, saveWorld, saveIndex, newWorldId, upsertWorld, renameInIndex, deleteWorld, makeWorldAutosaver } from './lib/persist/worlds.js';
+import { getWorlds, loadWorld, saveWorld, saveIndex, newWorldId, upsertWorld, renameInIndex, deleteWorld, makeWorldAutosaver, makeWorldPublisher, setPrivacy, forkWorld } from './lib/persist/worlds.js';
+import { serialize, deserialize } from './lib/voxel/rle.js';
+import { listPublished, getPublished } from './lib/persist/published.js';
 import { WX, WY, WZ } from './lib/constants.js';
 import { createSession } from './lib/net/session.js';
 import { makePlayTransport } from './lib/net/play-transport.js';
@@ -81,12 +83,28 @@ async function boot() {
     onNew: async (name) => {
       const id = newWorldId(index);
       const w = createWorld(); fillFloor(w, 8);
-      if (sdk && sdk.save) { await saveWorld(sdk, id, w); upsertWorld(index, { id, name, updatedAt: Date.now() }); await saveIndexSafe(); }
+      if (sdk && sdk.save) { await saveWorld(sdk, id, w); upsertWorld(index, { id, name, updatedAt: Date.now(), privacy: 'public' }); await saveIndexSafe(); }
       startHost(id, w, name);
     },
     onRename: async (id, name) => { renameInIndex(index, id, name); await saveIndexSafe(); menu.setWorlds(index); },
     onDelete: async (id) => { index = sdk && sdk.save ? await deleteWorld(sdk, index, id) : index.filter((x) => x.id !== id); menu.setWorlds(index); },
+    onPrivacy: async (id, privacy) => { setPrivacy(index, id, privacy); await saveIndexSafe(); if (sdk && sdk.publishWorld) { try { const e = index.find((w) => w.id === id); const w = await loadWorld(sdk, id); if (w) await sdk.publishWorld({ worldId: id, title: (e && e.name) || 'World', blob: serialize(w), privacy }); } catch (e) {} } },
     onJoin: (code) => startVisitor(code),
+    onListPublished: () => listPublished('blockworld'),
+    onVisit: async (publishId) => {
+      const overlay = showLoading('Loading world…');
+      const pub = await getPublished(publishId);
+      if (!pub) { overlay.remove(); menu.setStatus('That world is no longer available'); return; }
+      let world; try { world = deserialize(pub.blob); } catch { overlay.remove(); menu.setStatus('That world could not be loaded'); return; }
+      menu.close(); overlay.remove();
+      const onCopy = pub.copyable && sdk ? async () => {
+        const name = pub.title + ' (copy)';
+        const fork = forkWorld(index, pub.blob, name); // {id, world}; entry already added with this name
+        if (sdk.save) { await saveWorld(sdk, fork.id, fork.world); await saveIndexSafe(); }
+        startHost(fork.id, fork.world, name); // open the copy as your own editable world
+      } : null;
+      runVisit(world, { title: pub.title }, onCopy);
+    },
   });
   if (bootLoadingEl) bootLoadingEl.remove(); // menu is built underneath; reveal it
 
@@ -120,6 +138,37 @@ async function boot() {
   }
 }
 
+// Solo, read-only viewer for a published world snapshot. No multiplayer, no building, no autosave.
+// `onCopy` (when provided) forks the snapshot into the visitor's own worlds.
+function runVisit(world, meta, onCopy) {
+  const view = createWorldView(canvas, world);
+  const cam = createFlyCamera([WX / 2, 8, WZ / 2], 0, -0.35);
+  view.rebuildAll();
+  let mode = 'explore'; // start walking through it; toggle to fly with the same button
+  const modeBtn = document.getElementById('modeBtn');
+  if (modeBtn) { modeBtn.textContent = 'Walk'; modeBtn.onclick = () => { mode = mode === 'edit' ? 'explore' : 'edit'; cam.vel[0] = cam.vel[1] = cam.vel[2] = 0; cam.grounded = false; modeBtn.textContent = mode === 'edit' ? 'Fly' : 'Walk'; }; }
+
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:absolute;top:48px;left:12px;z-index:11;display:flex;gap:8px;align-items:center;background:rgba(20,23,28,.92);color:#fff;border-radius:10px;padding:8px 10px;font-family:system-ui,sans-serif;pointer-events:auto';
+  bar.innerHTML = `<span style="font-size:13px">Visiting <b>${meta.title}</b></span>`;
+  if (onCopy) { const c = document.createElement('button'); c.textContent = 'Make a copy'; c.style.cssText = 'border:0;border-radius:8px;background:#5EA918;color:#fff;padding:6px 10px;cursor:pointer'; c.onclick = () => onCopy(); bar.appendChild(c); }
+  const leave = document.createElement('button'); leave.textContent = 'Leave'; leave.style.cssText = 'border:0;border-radius:8px;background:#b02e26;color:#fff;padding:6px 10px;cursor:pointer'; leave.onclick = () => location.reload(); bar.appendChild(leave);
+  document.body.appendChild(bar);
+
+  const desktop = createDesktopInput(canvas, { onAct: () => {}, onPick: () => {}, onScroll: () => {}, onMenu: () => {} });
+  const mobile = isMobile() ? createMobileInput(document.getElementById('touchUI'), { onAct: () => {} }) : null;
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const intent = mobile ? mobile.pollIntent() : desktop.pollIntent();
+    if (mode === 'explore') updateWalkCamera(cam, intent, dt, world); else updateFlyCamera(cam, intent, dt);
+    view.setHighlight(null);
+    view.render(cam);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
 function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworld, index, worldName }) {
   let mode = 'edit';
   let world = preworld || createWorld();
@@ -131,6 +180,13 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   const autosave = host && worldId && sdk && sdk.save
     ? makeWorldAutosaver(sdk, worldId, () => world, index, () => Date.now(), 3000)
     : () => {};
+  const publisher = host && worldId && sdk && sdk.publishWorld
+    ? makeWorldPublisher(sdk, {
+        worldId,
+        getBlob: () => serialize(world),
+        getMeta: () => { const e = (index || []).find((w) => w.id === worldId); return { title: (e && e.name) || worldName || 'World', privacy: (e && e.privacy) || 'public' }; },
+      })
+    : Object.assign(() => {}, { flush: () => {} });
 
   function rebindWorld() { view.setWorld(world); view.rebuildAll(); }
 
@@ -141,7 +197,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
       worldName: worldName || 'World',
       onWelcome: () => inWorld.refresh(),
       onSnapshot: (w) => { world = w; rebindWorld(); if (loadingEl) { loadingEl.remove(); loadingEl = null; } },
-      applyRemoteEdit: (x, y, z, b, dirty) => { dirty.forEach((id) => view.rebuildChunk(id)); if (host) autosave(); },
+      applyRemoteEdit: (x, y, z, b, dirty) => { dirty.forEach((id) => view.rebuildChunk(id)); if (host) { autosave(); publisher(); } },
       onPos: (userId, p) => avatars.setTarget(userId, p.n || 'Player', p),
       onPlayerLeft: (userId) => avatars.remove(userId),
       onPlayers: () => inWorld.refresh(),
@@ -174,7 +230,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   inWorld = createInWorldMenu({
     getState: () => ({ isHost: host, code: room.code, worldName: session.worldName(), players: session.players() }),
     onToggle: (userId, canEdit) => session.setPermission(userId, canEdit),
-    onLeave: () => { try { room.leave(); } catch (e) {} location.reload(); },
+    onLeave: () => { try { publisher.flush(); } catch (e) {} try { room.leave(); } catch (e) {} location.reload(); },
   });
   document.getElementById('menuBtn').addEventListener('click', () => inWorld.toggle());
 
@@ -218,7 +274,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   let running = true, last = performance.now(), posTimer = 0;
   if (sdk.onPause) sdk.onPause(() => { running = false; });
   if (sdk.onResume) sdk.onResume(() => { if (!running) { running = true; last = performance.now(); loop(last); } });
-  window.addEventListener('beforeunload', () => { if (host && worldId && sdk.save) saveWorld(sdk, worldId, world); });
+  window.addEventListener('beforeunload', () => { if (host && worldId && sdk.save) { saveWorld(sdk, worldId, world); publisher.flush(); } });
 
   function loop(now) {
     if (!running) return;
