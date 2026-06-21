@@ -90,6 +90,21 @@ async function boot() {
     onDelete: async (id) => { index = sdk && sdk.save ? await deleteWorld(sdk, index, id) : index.filter((x) => x.id !== id); menu.setWorlds(index); },
     onPrivacy: async (id, privacy) => { setPrivacy(index, id, privacy); await saveIndexSafe(); if (sdk && sdk.publishWorld) { try { const e = index.find((w) => w.id === id); const w = await loadWorld(sdk, id); if (w) await sdk.publishWorld({ worldId: id, title: (e && e.name) || 'World', blob: serialize(w), privacy }); } catch (e) {} } },
     onJoin: (code) => startVisitor(code),
+    onListPublished: () => listPublished('blockworld'),
+    onVisit: async (publishId) => {
+      const overlay = showLoading('Loading world…');
+      const pub = await getPublished(publishId);
+      if (!pub) { overlay.remove(); menu.setStatus('That world is no longer available'); return; }
+      let world; try { world = deserialize(pub.blob); } catch { overlay.remove(); menu.setStatus('That world could not be loaded'); return; }
+      menu.close(); overlay.remove();
+      const onCopy = pub.copyable && sdk ? async () => {
+        const name = pub.title + ' (copy)';
+        const fork = forkWorld(index, pub.blob, name); // {id, world}; entry already added with this name
+        if (sdk.save) { await saveWorld(sdk, fork.id, fork.world); await saveIndexSafe(); }
+        startHost(fork.id, fork.world, name); // open the copy as your own editable world
+      } : null;
+      runVisit(world, { title: pub.title }, onCopy);
+    },
   });
   if (bootLoadingEl) bootLoadingEl.remove(); // menu is built underneath; reveal it
 
@@ -121,6 +136,37 @@ async function boot() {
     menu.close();
     runGame({ sdk, room, transport, ownerId: room.hostId, host: false, myName: displayName || 'Guest' });
   }
+}
+
+// Solo, read-only viewer for a published world snapshot. No multiplayer, no building, no autosave.
+// `onCopy` (when provided) forks the snapshot into the visitor's own worlds.
+function runVisit(world, meta, onCopy) {
+  const view = createWorldView(canvas, world);
+  const cam = createFlyCamera([WX / 2, 8, WZ / 2], 0, -0.35);
+  view.rebuildAll();
+  let mode = 'explore'; // start walking through it; toggle to fly with the same button
+  const modeBtn = document.getElementById('modeBtn');
+  if (modeBtn) { modeBtn.textContent = 'Walk'; modeBtn.onclick = () => { mode = mode === 'edit' ? 'explore' : 'edit'; cam.vel[0] = cam.vel[1] = cam.vel[2] = 0; cam.grounded = false; modeBtn.textContent = mode === 'edit' ? 'Fly' : 'Walk'; }; }
+
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:absolute;top:48px;left:12px;z-index:11;display:flex;gap:8px;align-items:center;background:rgba(20,23,28,.92);color:#fff;border-radius:10px;padding:8px 10px;font-family:system-ui,sans-serif;pointer-events:auto';
+  bar.innerHTML = `<span style="font-size:13px">Visiting <b>${meta.title}</b></span>`;
+  if (onCopy) { const c = document.createElement('button'); c.textContent = 'Make a copy'; c.style.cssText = 'border:0;border-radius:8px;background:#5EA918;color:#fff;padding:6px 10px;cursor:pointer'; c.onclick = () => onCopy(); bar.appendChild(c); }
+  const leave = document.createElement('button'); leave.textContent = 'Leave'; leave.style.cssText = 'border:0;border-radius:8px;background:#b02e26;color:#fff;padding:6px 10px;cursor:pointer'; leave.onclick = () => location.reload(); bar.appendChild(leave);
+  document.body.appendChild(bar);
+
+  const desktop = createDesktopInput(canvas, { onAct: () => {}, onPick: () => {}, onScroll: () => {}, onMenu: () => {} });
+  const mobile = isMobile() ? createMobileInput(document.getElementById('touchUI'), { onAct: () => {} }) : null;
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const intent = mobile ? mobile.pollIntent() : desktop.pollIntent();
+    if (mode === 'explore') updateWalkCamera(cam, intent, dt, world); else updateFlyCamera(cam, intent, dt);
+    view.setHighlight(null);
+    view.render(cam);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
 }
 
 function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworld, index, worldName }) {
