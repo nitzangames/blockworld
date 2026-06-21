@@ -83,7 +83,7 @@ async function boot() {
     onNew: async (name) => {
       const id = newWorldId(index);
       const w = createWorld(); fillFloor(w, 8);
-      if (sdk && sdk.save) { await saveWorld(sdk, id, w); upsertWorld(index, { id, name, updatedAt: Date.now() }); await saveIndexSafe(); }
+      if (sdk && sdk.save) { await saveWorld(sdk, id, w); upsertWorld(index, { id, name, updatedAt: Date.now(), privacy: 'public' }); await saveIndexSafe(); }
       startHost(id, w, name);
     },
     onRename: async (id, name) => { renameInIndex(index, id, name); await saveIndexSafe(); menu.setWorlds(index); },
