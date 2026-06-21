@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createWorld, setBlock, getBlock } from '../lib/voxel/store.js';
+import { createWorld, setBlock, getBlock, fillFloor } from '../lib/voxel/store.js';
+import { serialize } from '../lib/voxel/rle.js';
 import {
   newWorldId, upsertWorld, renameInIndex, removeFromIndex, touchWorld,
   loadIndex, saveIndex, loadWorld, saveWorld, getWorlds, makeWorldAutosaver,
-  setPrivacy,
+  setPrivacy, forkWorld,
 } from '../lib/persist/worlds.js';
 import { makeWorldPublisher } from '../lib/persist/worlds.js';
 
@@ -121,5 +122,17 @@ describe('world privacy', () => {
     expect(index[0].privacy).toBe('viewonly');
     setPrivacy(index, 'nope', 'private'); // no throw
     expect(index[0].privacy).toBe('viewonly');
+  });
+});
+
+describe('forkWorld', () => {
+  it('creates a new owned world from a published blob', () => {
+    const src = createWorld(); fillFloor(src, 8);
+    const blob = serialize(src);
+    const index = [{ id: 'w1', name: 'Mine', privacy: 'public' }];
+    const { id, world } = forkWorld(index, blob, 'Castle (copy)');
+    expect(id).toBe('w2');                       // newWorldId after w1
+    expect(getBlock(world, 0, 0, 0)).toBe(8);    // floor came across
+    expect(index.find((w) => w.id === 'w2')).toMatchObject({ id: 'w2', name: 'Castle (copy)', privacy: 'public' });
   });
 });
