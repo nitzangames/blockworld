@@ -6,7 +6,9 @@ import { raycast } from './lib/voxel/raycast.js';
 import { createDesktopInput } from './lib/input/desktop.js';
 import { createMobileInput } from './lib/input/mobile.js';
 import { createHUD } from './lib/ui/hud.js';
-import { getWorlds, loadWorld, saveWorld, saveIndex, newWorldId, upsertWorld, renameInIndex, deleteWorld, makeWorldAutosaver } from './lib/persist/worlds.js';
+import { getWorlds, loadWorld, saveWorld, saveIndex, newWorldId, upsertWorld, renameInIndex, deleteWorld, makeWorldAutosaver, makeWorldPublisher, setPrivacy, forkWorld } from './lib/persist/worlds.js';
+import { serialize, deserialize } from './lib/voxel/rle.js';
+import { listPublished, getPublished } from './lib/persist/published.js';
 import { WX, WY, WZ } from './lib/constants.js';
 import { createSession } from './lib/net/session.js';
 import { makePlayTransport } from './lib/net/play-transport.js';
@@ -131,6 +133,13 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   const autosave = host && worldId && sdk && sdk.save
     ? makeWorldAutosaver(sdk, worldId, () => world, index, () => Date.now(), 3000)
     : () => {};
+  const publisher = host && worldId && sdk && sdk.publishWorld
+    ? makeWorldPublisher(sdk, {
+        worldId,
+        getBlob: () => serialize(world),
+        getMeta: () => { const e = (index || []).find((w) => w.id === worldId); return { title: (e && e.name) || worldName || 'World', privacy: (e && e.privacy) || 'public' }; },
+      })
+    : Object.assign(() => {}, { flush: () => {} });
 
   function rebindWorld() { view.setWorld(world); view.rebuildAll(); }
 
@@ -141,7 +150,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
       worldName: worldName || 'World',
       onWelcome: () => inWorld.refresh(),
       onSnapshot: (w) => { world = w; rebindWorld(); if (loadingEl) { loadingEl.remove(); loadingEl = null; } },
-      applyRemoteEdit: (x, y, z, b, dirty) => { dirty.forEach((id) => view.rebuildChunk(id)); if (host) autosave(); },
+      applyRemoteEdit: (x, y, z, b, dirty) => { dirty.forEach((id) => view.rebuildChunk(id)); if (host) { autosave(); publisher(); } },
       onPos: (userId, p) => avatars.setTarget(userId, p.n || 'Player', p),
       onPlayerLeft: (userId) => avatars.remove(userId),
       onPlayers: () => inWorld.refresh(),
@@ -174,7 +183,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   inWorld = createInWorldMenu({
     getState: () => ({ isHost: host, code: room.code, worldName: session.worldName(), players: session.players() }),
     onToggle: (userId, canEdit) => session.setPermission(userId, canEdit),
-    onLeave: () => { try { room.leave(); } catch (e) {} location.reload(); },
+    onLeave: () => { try { publisher.flush(); } catch (e) {} try { room.leave(); } catch (e) {} location.reload(); },
   });
   document.getElementById('menuBtn').addEventListener('click', () => inWorld.toggle());
 
@@ -218,7 +227,7 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   let running = true, last = performance.now(), posTimer = 0;
   if (sdk.onPause) sdk.onPause(() => { running = false; });
   if (sdk.onResume) sdk.onResume(() => { if (!running) { running = true; last = performance.now(); loop(last); } });
-  window.addEventListener('beforeunload', () => { if (host && worldId && sdk.save) saveWorld(sdk, worldId, world); });
+  window.addEventListener('beforeunload', () => { if (host && worldId && sdk.save) { saveWorld(sdk, worldId, world); publisher.flush(); } });
 
   function loop(now) {
     if (!running) return;
