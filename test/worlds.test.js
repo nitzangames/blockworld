@@ -5,6 +5,7 @@ import {
   loadIndex, saveIndex, loadWorld, saveWorld, getWorlds, makeWorldAutosaver,
   setPrivacy,
 } from '../lib/persist/worlds.js';
+import { makeWorldPublisher } from '../lib/persist/worlds.js';
 
 function mockSDK(initial = {}) {
   const kv = new Map(Object.entries(initial));
@@ -74,6 +75,37 @@ describe('worlds persistence (mock sdk)', () => {
     expect(sdk.save).toHaveBeenCalledWith('worlds-index', expect.any(String));
     expect(index[0].updatedAt).toBe(777);
     vi.useRealTimers();
+  });
+});
+
+describe('makeWorldPublisher', () => {
+  function fakeSdk() {
+    const calls = [];
+    return { calls, publishWorld: (p) => { calls.push(p); return Promise.resolve({ publish_id: 'px' }); } };
+  }
+  it('publishes at most once per window, then flush() sends the latest', async () => {
+    const sdk = fakeSdk();
+    let now = 0;
+    const pub = makeWorldPublisher(sdk, {
+      worldId: 'w1',
+      getBlob: () => 'BLOB' + now,
+      getMeta: () => ({ title: 'A', privacy: 'public' }),
+      now: () => now,
+      windowMs: 1000,
+    });
+    pub(); // first call -> publishes immediately
+    pub(); // within window -> throttled (no new call)
+    expect(sdk.calls.length).toBe(1);
+    expect(sdk.calls[0]).toMatchObject({ worldId: 'w1', title: 'A', privacy: 'public' });
+    now = 1500; pub(); // window passed -> publishes
+    expect(sdk.calls.length).toBe(2);
+    await pub.flush(); // forces a final publish of the latest snapshot
+    expect(sdk.calls.length).toBe(3);
+    expect(sdk.calls[2].blob).toBe('BLOB1500');
+  });
+  it('does not throw when sdk lacks publishWorld', async () => {
+    const pub = makeWorldPublisher({}, { worldId: 'w1', getBlob: () => 'B', getMeta: () => ({ title: 'A', privacy: 'public' }), now: () => 0 });
+    pub(); await pub.flush(); // no-op, no throw
   });
 });
 
