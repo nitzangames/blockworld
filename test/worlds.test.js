@@ -3,6 +3,7 @@ import { createWorld, setBlock, getBlock } from '../lib/voxel/store.js';
 import {
   newWorldId, upsertWorld, renameInIndex, removeFromIndex, touchWorld,
   loadIndex, saveIndex, loadWorld, saveWorld, getWorlds, makeWorldAutosaver,
+  setPrivacy,
 } from '../lib/persist/worlds.js';
 
 function mockSDK(initial = {}) {
@@ -53,7 +54,7 @@ describe('worlds persistence (mock sdk)', () => {
     const legacyBlob = 'LEGACYBLOB==';
     const sdk = mockSDK({ 'world:current': legacyBlob });
     const idx = await getWorlds(sdk, 1234);
-    expect(idx).toEqual([{ id: 'w1', name: 'My First World', updatedAt: 1234 }]);
+    expect(idx).toEqual([{ id: 'w1', name: 'My First World', updatedAt: 1234, privacy: 'public' }]);
     expect(sdk.kv.get('world:w1')).toBe(legacyBlob);
     expect(await loadIndex(sdk)).toEqual(idx);
   });
@@ -73,5 +74,20 @@ describe('worlds persistence (mock sdk)', () => {
     expect(sdk.save).toHaveBeenCalledWith('worlds-index', expect.any(String));
     expect(index[0].updatedAt).toBe(777);
     vi.useRealTimers();
+  });
+});
+
+describe('world privacy', () => {
+  it('new worlds default to public via upsertWorld', () => {
+    const index = [];
+    upsertWorld(index, { id: 'w1', name: 'A', updatedAt: 1, privacy: 'public' });
+    expect(index[0].privacy).toBe('public');
+  });
+  it('setPrivacy updates an entry and ignores unknown ids', () => {
+    const index = [{ id: 'w1', name: 'A', privacy: 'public' }];
+    setPrivacy(index, 'w1', 'viewonly');
+    expect(index[0].privacy).toBe('viewonly');
+    setPrivacy(index, 'nope', 'private'); // no throw
+    expect(index[0].privacy).toBe('viewonly');
   });
 });
