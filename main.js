@@ -207,12 +207,14 @@ function runGame({ sdk, room, transport, ownerId, host, myName, worldId, preworl
   });
 
   if (host) {
-    if (preworld) { world = preworld; rebindWorld(); }
+    // publisher() once the world is ready -> the world appears in the gallery as soon as you host it
+    // (not only after a block edit). Throttled, so this initial publish + later edits don't pile up.
+    if (preworld) { world = preworld; rebindWorld(); publisher(); }
     else if (sdk && sdk.load && worldId) {
       if (!loadingEl) loadingEl = showLoading('Loading world…');
-      const done = () => { rebindWorld(); if (loadingEl) { loadingEl.remove(); loadingEl = null; } };
+      const done = () => { rebindWorld(); if (loadingEl) { loadingEl.remove(); loadingEl = null; } publisher(); };
       loadWorld(sdk, worldId).then((w) => { if (w) world = w; else { world = createWorld(); fillFloor(world, 8); } done(); }).catch(() => { world = createWorld(); fillFloor(world, 8); done(); });
-    } else { world = createWorld(); fillFloor(world, 8); rebindWorld(); }
+    } else { world = createWorld(); fillFloor(world, 8); rebindWorld(); publisher(); }
   }
 
   function act() {
